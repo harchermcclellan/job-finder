@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Job Finder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+ 
+</head>
+<body>
+
+<!-- ── Search Form ──────────────────────────────────── -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-sun">☀️</div>
+  <div class="loading-text">Searching...</div>
+</div>
+<header>
+  <div class="logo">  <button id="themeToggle" onclick="toggleTheme()">🌙</button>
+    Job Finder</div>
+  <div class="search-grid">
+
+
+    <div class="field">
+      <label>Job Titles</label>
+      <div class="tag-input-wrap" id="tagWrap" onclick="focusTagInput()">
+        <div id="tagList"></div>
+        <input
+          type="text"
+          id="tagInput"
+          placeholder="e.g. Software Engineer"
+          autocomplete="off"
+          onkeydown="handleTagKey(event)"
+        />
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="location">Location</label>
+      <input id="location" type="text" placeholder="e.g. New York, NY" />
+    </div>
+
+    <div class="field">
+      <label for="work_type">Work Type</label>
+      <select id="work_type">
+        <option value="any">Any</option>
+        <option value="remote">Remote</option>
+        <option value="hybrid">Hybrid</option>
+        <option value="onsite">On-site</option>
+      </select>
+    </div>
+
+    <div>
+      <button class="btn-search" id="searchBtn" onclick="doSearch()">Search →</button>
+    </div>
+
+  </div>
+
+  <!-- add back salary after sorting out how we want to do that -->
+  <div style="display:flex; align-items:center; gap:12px; margin-top:10px;">
+    <!-- <div class="field" style="flex:0 0 200px;">
+      <label for="salary">Salary Preference</label>
+      <input id="salary" type="text" placeholder="e.g. $120k+ or 100k–150k" />
+    </div> -->
+    <div class="error-banner" id="errorBanner"></div>
+  </div>
+</header>
+
+<!-- ── Two-Panel Workspace ──────────────────────────── -->
+<div class="workspace">
+
+  <!-- Left: collapsible job list -->
+  <div class="panel-left" id="panelLeft">
+    <div class="panel-toggle" onclick="togglePanel()">
+      <span class="panel-toggle-label" id="panelLabel">Results</span>
+      <span class="result-count" id="resultCount"></span>
+      <span class="toggle-icon">◂</span>
+    </div>
+    <div class="job-list" id="jobList">
+      <div class="list-state">Search to find jobs.</div>
+    </div>
+  </div>
+
+  <!-- Right: detail pane -->
+  <div class="panel-right" id="panelRight">
+
+    <div class="detail-empty" id="detailEmpty">
+      <div class="icon">◫</div>
+      <p>Select a job from the list to view details</p>
+    </div>
+
+    <div class="detail-view" id="detailView">
+      <div class="detail-header">
+        <div class="detail-title"  id="dTitle"></div>
+        <div class="detail-meta">
+          <span class="meta-item" id="dCompany"></span>
+          <span class="meta-item"><span class="dot"></span><span id="dLocation"></span></span>
+          <span class="meta-item"><span class="dot"></span><span id="dPosted"></span></span>
+        </div>
+        <div class="detail-salary" id="dSalary"></div>
+        <div class="detail-actions">
+          <a class="btn-apply" id="dApplyBtn" href="#" target="_self">Apply Now →</a>
+          <button class="btn-secondary" onclick="openExternal()">Open in new tab ↗</button>
+        </div>
+      </div>
+      <div class="detail-body">
+        <div class="section-label">Overview</div>
+        <div class="detail-summary" id="dSummary"></div>
+        <div class="section-label">Application Page</div>
+        <div class="detail-iframe-wrap">
+          <iframe id="dFrame" src="about:blank" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+        </div>
+        <p class="iframe-note">Some job sites block embedding. Use "Open in new tab" if the page doesn't load here.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  let currentJobs = [];
+  let currentUrl  = '';
+  let panelOpen   = true;
+
+  // ── Toggle left panel ────────────────────────────
+  function togglePanel() {
+    panelOpen = !panelOpen;
+    document.getElementById('panelLeft').classList.toggle('collapsed', !panelOpen);
+  }
+
+  function toggleTheme() {
+    const isDark = document.documentElement.classList.toggle('dark');
+    document.getElementById('themeToggle').textContent = isDark ? '☀️' : '🌙';
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  }
+
+  // On page load, restore saved preference
+  (function () {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.getElementById('themeToggle').textContent = '☀️';
+    }
+  })();
+
+  // ── Search ───────────────────────────────────────
+  async function doSearch() {
+    addTags(document.getElementById('tagInput').value);
+
+    if (!tags.length) {
+    showError('Please enter at least one job title.');
+    return;
+    }
+
+    clearError();
+    setLoading(true);   // ← must be after the early return, before the fetch
+
+    const payload = {
+      titles: tags,       
+      description: tags.join(', '), 
+      location:  document.getElementById('location').value.trim(),
+      work_type: document.getElementById('work_type').value,
+      salary:   '',
+    };
+
+    try {
+      const res  = await fetch('/search', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Unknown error');
+      renderJobs(data.jobs || []);
+
+    } catch (err) {
+      showError(err.message);
+      document.getElementById('jobList').innerHTML = '<div class="list-state">No results.</div>';
+      document.getElementById('resultCount').textContent = '';
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const tags = [];
+
+function handleTagKey(e) {
+  const input = document.getElementById('tagInput');
+  const val = input.value;
+
+  // commit on comma or Enter
+  if (e.key === ',' || e.key === 'Enter') {
+    e.preventDefault();
+    addTags(val);
+  }
+  // delete last tag on backspace if input is empty
+  if (e.key === 'Backspace' && val === '' && tags.length) {
+    removeTag(tags.length - 1);
+  }
+}
+
+function addTags(raw) {
+  const input = document.getElementById('tagInput');
+  raw.split(',')
+    .map(t => t.trim())
+    .filter(t => t && !tags.includes(t))
+    .forEach(t => { tags.push(t); });
+  input.value = '';
+  renderTags();
+}
+
+function removeTag(index) {
+  tags.splice(index, 1);
+  renderTags();
+}
+
+function renderTags() {
+  document.getElementById('tagList').innerHTML = tags.map((t, i) => `
+    <span class="tag">
+      ${escHtml(t)}
+      <span class="tag-remove" onclick="removeTag(${i})">×</span>
+    </span>
+  `).join('');
+}
+
+function focusTagInput() {
+  document.getElementById('tagInput').focus();
+}
+
+  // Allow Enter key in textarea to trigger search (Shift+Enter for newline)
+  document.getElementById('tagInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSearch(); }
+  });
+
+  // ── Render job list ──────────────────────────────
+  function renderJobs(jobs) {
+    currentJobs = jobs;
+    const list  = document.getElementById('jobList');
+    const count = document.getElementById('resultCount');
+
+    if (!jobs.length) {
+      list.innerHTML  = '<div class="list-state">No jobs found.</div>';
+      count.textContent = '';
+      return;
+    }
+
+    count.textContent = `${jobs.length} result${jobs.length !== 1 ? 's' : ''}`;
+
+    list.innerHTML = jobs.map((j, i) => `
+      <div class="job-card" id="card-${i}" onclick="selectJob(${i})">
+        <div class="jc-title">${escHtml(j.title)}</div>
+        <div class="jc-company">${escHtml(j.company)}</div>
+        <div class="jc-company">${escHtml(j.salary)}</div>
+        <span class="jc-badge ${badgeClass(j.work_type)}">${escHtml(j.work_type)}</span>
+      </div>
+    `).join('');
+
+    // Auto-select first job
+    selectJob(0);
+  }
+
+  // ── Select & display a job ───────────────────────
+  function selectJob(index) {
+    const job = currentJobs[index];
+    if (!job) return;
+
+    // Highlight active card
+    document.querySelectorAll('.job-card').forEach((c, i) => c.classList.toggle('active', i === index));
+
+    currentUrl = job.url;
+
+    document.getElementById('dTitle').textContent   = job.title;
+    document.getElementById('dCompany').textContent = job.company;
+    document.getElementById('dLocation').textContent = job.location;
+    document.getElementById('dPosted').textContent  = job.posted || '';
+    document.getElementById('dSalary').textContent  = job.salary  || '';
+    document.getElementById('dSummary').textContent = job.summary || '';
+    document.getElementById('dApplyBtn').href = job.url;
+    document.getElementById('dFrame').src = job.url;
+
+    document.getElementById('detailEmpty').style.display = 'none';
+    document.getElementById('detailView').classList.add('visible');
+
+    // Expand panel if collapsed
+    if (!panelOpen) togglePanel();
+  }
+
+  function openExternal() {
+    if (currentUrl) window.open(currentUrl, '_blank');
+  }
+
+  // ── Helpers ──────────────────────────────────────
+  function setLoading(on) {
+  const btn = document.getElementById('searchBtn');
+  const overlay = document.getElementById('loadingOverlay');
+
+  btn.disabled = on;
+  overlay.classList.toggle('visible', on);
+
+  if (on) {
+    document.getElementById('jobList').innerHTML = '<div class="list-state">Searching...</div>';
+    document.getElementById('resultCount').textContent = '';
+  }
+}
+
+  function showError(msg) {
+    const el = document.getElementById('errorBanner');
+    el.textContent = '⚠ ' + msg;
+    el.style.display = 'block';
+  }
+
+  function clearError() {
+    document.getElementById('errorBanner').style.display = 'none';
+  }
+
+  function badgeClass(type) {
+    if (!type) return '';
+    const t = type.toLowerCase();
+    if (t.includes('remote')) return 'badge-remote';
+    if (t.includes('hybrid')) return 'badge-hybrid';
+    return 'badge-onsite';
+  }
+
+  function escHtml(str) {
+    return String(str || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+</script>
+</body>
+</html>
