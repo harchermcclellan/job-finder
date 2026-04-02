@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 from flask import Flask, render_template, request, jsonify
 import serpapi 
-from dotenv import load_dotenv
 import os
 from db import make_key, get_cached, set_cached
 
 
-load_dotenv()  # read .env into environment variables
 
 API_KEY = os.getenv("SERP_API_KEY")
 DATABASE_URL=os.getenv("DATABASE_URL")
