@@ -8,6 +8,7 @@ DATABASE_URL=os.getenv("DATABASE_URL")
 
 
 def get_conn():
+    print(DATABASE_URL)
     try:
         return psycopg2.connect(DATABASE_URL, sslmode="require")
     except Exception as e:

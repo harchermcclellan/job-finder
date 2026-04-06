@@ -24,15 +24,20 @@ def search_jobs(title: str, location: str, work_type: str, salary: str) -> list[
         posted      str   – posting date (e.g. "2 days ago")
     """
 
-    client = serpapi.Client(api_key=API_KEY)
-    results = client.search({
-        "engine": "google_jobs",
-        "q": title,
-        "location": location,
-        "google_domain": "google.com",
-        "hl": "en",
-        "gl": "us",
-    })
+    if(not API_KEY is None):
+
+        client = serpapi.Client(api_key=API_KEY)
+        results = client.search({
+            "engine": "google_jobs",
+            "q": title,
+            "location": location,
+            "google_domain": "google.com",
+            "hl": "en",
+            "gl": "us",
+        })
+
+    else:
+        results=get_placeholder()
     
     response = []
 
@@ -80,26 +85,24 @@ def search():
 
     all_jobs = []
     for title in titles:
-        cache_key = make_key(title, location, work_type, salary)
-        cached = get_cached(cache_key)
-        try:
-            if cached:
-                all_jobs.extend(cached)
-            else:
-                jobs = search_jobs(title, location, work_type, salary)
-                set_cached(cache_key, title, location, jobs)
-                all_jobs.extend(jobs)
-        except Exception as e:
-            print(f"Error searching for '{title}': {e}")
-            import traceback; traceback.print_exc()
-
+        if(DATABASE_URL is None):
+            jobs = search_jobs(title, location, work_type, salary)
+            all_jobs.extend(jobs)
+        else:
+            cache_key = make_key(title, location, work_type, salary)
+            cached = get_cached(cache_key)
+            try:
+                if cached:
+                    all_jobs.extend(cached)
+                else:
+                    jobs = search_jobs(title, location, work_type, salary)
+                    set_cached(cache_key, title, location, jobs)
+                    all_jobs.extend(jobs)
+            except Exception as e:
+                print(f"Error searching for '{title}': {e}")
+                import traceback; traceback.print_exc()
 
     return jsonify({"jobs": all_jobs})
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
-
 
 def get_placeholder():
     placeholder= {
@@ -1122,3 +1125,8 @@ def get_placeholder():
         }
         }
     return placeholder
+
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
